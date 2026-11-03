@@ -1,0 +1,1442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ExifFrame</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=Oswald:wght@400;500;600&family=Playfair+Display:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap">
+<style>
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+/* Layout: desktop = header, preview stage + thumbnail strip on the left, settings panel on the right.
+   Phone = one column (header, preview, thumbnails, settings). */
+:root {
+  --bg: #1b1c1f; --panel: #202226; --raised: #2a2c31; --field: #16171a; --line: #33363c;
+  --fg: #e9eaed; --muted: #9a9fa9; --accent: #2f8cf4; --accent-fg: #ffffff;
+  --accent-soft: rgba(47,140,244,.17); --danger: #ef6b6b; --stage: #17181a;
+  --shadow: 0 18px 50px rgba(0,0,0,.55);
+  --ui: Figtree, "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eef0f3; --panel: #ffffff; --raised: #f0f2f5; --field: #f5f6f8; --line: #d8dbe1;
+    --fg: #1c1e22; --muted: #666c77; --accent: #1f78e0; --accent-fg: #ffffff;
+    --accent-soft: rgba(31,120,224,.13); --danger: #d94848; --stage: #e3e6eb;
+    --shadow: 0 14px 40px rgba(20,30,50,.24); color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #eef0f3; --panel: #ffffff; --raised: #f0f2f5; --field: #f5f6f8; --line: #d8dbe1;
+  --fg: #1c1e22; --muted: #666c77; --accent: #1f78e0; --accent-fg: #ffffff;
+  --accent-soft: rgba(31,120,224,.13); --danger: #d94848; --stage: #e3e6eb;
+  --shadow: 0 14px 40px rgba(20,30,50,.24); color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 14px; line-height: 1.4; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; }
+
+/* header */
+.hdr {
+  display: flex; align-items: center; gap: 16px; min-width: 0;
+  padding-block: 12px; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px));
+}
+.brand { font-weight: 700; font-size: 22px; letter-spacing: -.01em; }
+.crumb { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hdr-actions { display: flex; align-items: center; gap: 10px; position: relative; }
+.btn {
+  height: 40px; padding: 0 16px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;
+}
+.btn:hover { background: var(--raised); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.wide { width: 100%; }
+.btn.ghost { background: transparent; }
+.btn.small { height: 32px; padding: 0 12px; font-size: 13px; }
+.icon-btn { width: 40px; height: 40px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; }
+.icon-btn:hover { background: var(--raised); }
+.icon-btn svg, .btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.split { display: flex; }
+.split .btn:first-child { border-radius: 6px 0 0 6px; }
+.split .btn.caret { border-radius: 0 6px 6px 0; border-left: 0; padding: 0 12px; }
+.menu {
+  position: absolute; top: 46px; right: 70px; z-index: 20; min-width: 190px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+}
+.menu button { display: block; width: 100%; text-align: left; padding: 9px 12px; border: 0; background: transparent; border-radius: 6px; }
+.menu button:hover { background: var(--raised); }
+
+/* main */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; }
+.left { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+.stage {
+  position: relative; min-height: 0; min-width: 0; background: var(--stage); display: grid; place-items: center; padding: 28px;
+  padding-left: max(28px, env(safe-area-inset-left, 0px));
+}
+#cv { display: block; box-shadow: var(--shadow); background: #fff; }
+.banner {
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%); max-width: calc(100% - 32px);
+  padding: 7px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; text-align: center;
+}
+.dropzone {
+  position: absolute; inset: 10px; border: 2px dashed var(--accent); border-radius: 12px; background: var(--accent-soft);
+  display: grid; place-items: center; font-weight: 600; font-size: 18px; color: var(--accent); pointer-events: none; z-index: 5;
+}
+.strip {
+  display: flex; gap: 10px; align-items: center; overflow-x: auto; padding-block: 14px; border-top: 1px solid var(--line); background: var(--bg);
+  padding-left: max(40px, env(safe-area-inset-left, 0px)); padding-right: 16px; min-height: 104px;
+}
+.thumb { position: relative; flex: none; width: 100px; height: 76px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: var(--field); overflow: hidden; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb[aria-current="true"] { border-color: var(--accent); }
+.thumb .x { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-size: 13px; line-height: 20px; text-align: center; opacity: 0; }
+.thumb:hover .x, .thumb:focus-within .x { opacity: 1; }
+.thumb.add { display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); font-size: 26px; background: transparent; }
+.thumb.add:hover { color: var(--fg); border-color: var(--muted); }
+
+/* panel */
+.panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.panel-body { flex: 1; overflow-y: auto; padding-block: 22px 8px; padding-left: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.panel-foot { padding-block: 14px; border-top: 1px solid var(--line); padding-left: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); display: grid; gap: 8px; }
+.panel h2 { margin: 0 0 14px; font-size: 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.group { display: grid; gap: 6px; margin-bottom: 18px; min-width: 0; }
+.lbl { font-size: 13px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.lbl output { color: var(--fg); font-variant-numeric: tabular-nums; }
+.sec { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 22px; }
+select, input[type="text"] {
+  width: 100%; height: 42px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); min-width: 0;
+}
+select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%239a9fa9' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
+.numrow { display: grid; grid-template-columns: minmax(0, 1fr) 76px auto; gap: 8px; align-items: center; }
+.unit { color: var(--muted); font-size: 13px; width: 16px; }
+input[type="number"] { width: 100%; height: 36px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); min-width: 0; text-align: right; font-variant-numeric: tabular-nums; appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]:focus { border-color: var(--accent); outline: none; }
+input[type="text"]:focus, select:focus { border-color: var(--accent); outline: none; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); }
+.seg button { height: 34px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 500; }
+.seg button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+.seg.disabled { opacity: .45; pointer-events: none; }
+.tabs { display: inline-grid; grid-auto-flow: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); }
+.tabs button { height: 28px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.tabs button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+
+.styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.style-btn { display: grid; gap: 6px; justify-items: center; padding: 8px 4px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--muted); font-size: 12px; }
+.style-btn svg { width: 100%; max-width: 74px; height: auto; }
+.style-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+
+.colors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+input[type="color"] { appearance: none; -webkit-appearance: none; width: 100%; height: 40px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); cursor: pointer; }
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
+input[type="color"]::-moz-color-swatch { border: 0; border-radius: 3px; }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.presets .lbl { margin-right: 4px; }
+.chip { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 1px solid var(--line); box-shadow: 0 0 0 2px var(--panel); }
+.chip:hover { transform: scale(1.1); }
+
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-width: 0; }
+.field { display: grid; gap: 6px; min-width: 0; margin-bottom: 14px; }
+.eye { width: 28px; height: 22px; border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; padding: 0; }
+.eye:hover { color: var(--fg); }
+.eye[aria-pressed="true"] { color: var(--fg); }
+.eye svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: -6px 0 14px; font-size: 13px; color: var(--muted); }
+.checks label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.checks input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.linkbtn { border: 0; background: transparent; color: var(--accent); padding: 0; font-size: 13px; }
+.linkbtn:hover { text-decoration: underline; }
+
+.tpl-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 12px; }
+.tpl-list { display: grid; gap: 8px; margin-bottom: 12px; }
+.tpl { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 8px 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); text-align: left; }
+.tpl:hover { border-color: var(--muted); }
+.tpl[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.tpl .mini { height: 34px; border-radius: 3px; border: 1px solid var(--line); position: relative; overflow: hidden; }
+.tpl .mini i { position: absolute; left: 18%; right: 18%; bottom: 7px; height: 3px; border-radius: 2px; opacity: .85; }
+.tpl .mini b { position: absolute; left: 8%; right: 8%; top: 6%; height: 52%; background: rgba(128,128,128,.55); border-radius: 1px; }
+.tpl .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpl .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpl .del { width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; }
+.tpl .del:hover { background: var(--raised); color: var(--danger); }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 2px 14px; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 16px; }
+.dlg { width: min(420px, 100%); max-height: 100%; overflow: auto; padding: 22px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); display: grid; gap: 16px; }
+.dlg h3 { margin: 0; font-size: 18px; }
+.dlg .foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.dlg img { max-width: 100%; border-radius: 6px; }
+.selgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; max-height: min(46vh, 380px); overflow-y: auto; padding: 2px; }
+.sel { position: relative; display: grid; gap: 4px; padding: 0; border: 2px solid var(--line); border-radius: 8px; background: var(--field); overflow: hidden; text-align: left; opacity: .55; }
+.sel img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.sel .nm { padding: 0 6px 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sel .tick { position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; border-radius: 5px; border: 2px solid #fff; background: rgba(0,0,0,.45); display: grid; place-items: center; color: #fff; font-size: 13px; line-height: 1; }
+.sel[aria-pressed="true"] { opacity: 1; border-color: var(--accent); }
+.sel[aria-pressed="true"] .tick { background: var(--accent); border-color: var(--accent); }
+.sel[aria-pressed="false"] .tick span { display: none; }
+.seltop { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--muted); }
+.dlg.wide { width: min(640px, 100%); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 60; max-width: calc(100% - 32px);
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px)); padding: 10px 16px; border-radius: 8px;
+  background: var(--fg); color: var(--bg); font-weight: 500; box-shadow: var(--shadow);
+}
+
+@media (max-width: 880px) {
+  html, body { height: auto; }
+  .app { height: auto; display: block; }
+  .hdr { flex-wrap: wrap; gap: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .crumb { order: 3; flex-basis: 100%; }
+  .hdr-actions { margin-left: auto; }
+  .main { display: block; }
+  .stage { height: min(62vh, 520px); min-height: 300px; padding: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .strip { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .panel { border-left: 0; border-top: 1px solid var(--line); }
+  .panel-body { overflow: visible; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .panel-foot { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .menu { right: 0; top: 46px; }
+  .brand { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .chip:hover { transform: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="hdr">
+    <div class="brand">ExifFrame</div>
+    <div class="crumb" id="crumb"></div>
+    <div class="hdr-actions">
+      <button class="icon-btn" id="btnGear" aria-label="Export settings" title="Export settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+      <div class="split">
+        <button class="btn" id="btnOpen">Open Folder</button>
+        <button class="btn caret" id="btnOpenMenu" aria-label="More ways to open photos" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <div class="menu" id="openMenu" hidden>
+        <button id="menuFiles">Open Photos…</button>
+        <button id="menuFolder">Open Folder…</button>
+      </div>
+      <button class="btn primary" id="btnExport">Export</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="left">
+      <div class="stage" id="stage">
+        <canvas id="cv" width="10" height="10" aria-label="Framed photo preview"></canvas>
+        <div class="banner" id="banner" hidden>Sample photo. Drop your own photos anywhere on this page, or press Open Folder.</div>
+        <div class="dropzone" id="dropzone" hidden>Drop photos to add them</div>
+      </div>
+      <div class="strip" id="strip"></div>
+    </section>
+
+    <aside class="panel">
+      <div class="panel-body">
+        <h2>Frame Settings</h2>
+
+        <div class="group">
+          <div class="lbl">Frame Style</div>
+          <div class="styles" id="styles"></div>
+        </div>
+
+        <div class="group">
+          <label class="lbl" for="aspect">Aspect Ratio</label>
+          <select id="aspect" data-key="aspect">
+            <option value="4300:3618">Default (4300:3618)</option>
+            <option value="auto">Auto (fit photo)</option>
+            <option value="1:1">1:1</option>
+            <option value="5:4">5:4 / 4:5</option>
+            <option value="4:3">4:3 / 3:4</option>
+            <option value="3:2">3:2 / 2:3</option>
+            <option value="16:9">16:9 / 9:16</option>
+          </select>
+        </div>
+
+        <div class="group">
+          <div class="lbl">Orientation</div>
+          <div class="seg" id="segOrient" data-key="orient">
+            <button data-v="landscape"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/></svg>Landscape</button>
+            <button data-v="portrait"><svg viewBox="0 0 16 16"><rect x="3.5" y="1.5" width="9" height="13" rx="1.5"/></svg>Portrait</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="lbl">Vertical Alignment</div>
+          <div class="seg" data-key="valign">
+            <button data-v="top"><svg viewBox="0 0 16 16"><path d="M2 2.5h12M5 6h6v6H5z"/></svg>Top</button>
+            <button data-v="center"><svg viewBox="0 0 16 16"><path d="M2 8h12M5 5h6v6H5z"/></svg>Center</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="lbl">Separator Style</div>
+          <div class="seg" data-key="sep">
+            <button data-v="pipe">Pipe (|)</button>
+            <button data-v="dot">Dot (·)</button>
+            <button data-v="space">Space</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <label class="lbl" for="borderR">Border <output data-out="border"></output></label>
+          <div class="numrow"><input type="range" id="borderR" data-key="border" min="0" max="12" step="0.5"><input type="number" class="num" data-px="border" min="0" step="1" inputmode="numeric" aria-label="Border in pixels"><span class="unit">px</span></div>
+        </div>
+        <div class="group">
+          <label class="lbl" for="barR">Bar Height <output data-out="barH"></output></label>
+          <div class="numrow"><input type="range" id="barR" data-key="barH" min="30" max="260" step="1"><input type="number" class="num" data-px="barH" min="0" step="1" inputmode="numeric" aria-label="Bar Height in pixels"><span class="unit">px</span></div>
+        </div>
+        <div class="checks" style="margin-top:0">
+          <label><input type="checkbox" id="chkDivider" data-key="divider"> Divider line (Split style)</label>
+        </div>
+        <div class="lbl" style="margin-bottom:6px">Text Size</div>
+        <div class="group">
+          <label class="lbl" for="szC">Camera <output data-out="szCamera"></output></label>
+          <div class="numrow"><input type="range" id="szC" data-key="szCamera" min="50" max="220" step="5"><input type="number" class="num" data-px="szCamera" min="0" step="1" inputmode="numeric" aria-label="Camera in pixels"><span class="unit">px</span></div>
+        </div>
+        <div class="group">
+          <label class="lbl" for="szL">Lens <output data-out="szLens"></output></label>
+          <div class="numrow"><input type="range" id="szL" data-key="szLens" min="50" max="220" step="5"><input type="number" class="num" data-px="szLens" min="0" step="1" inputmode="numeric" aria-label="Lens in pixels"><span class="unit">px</span></div>
+        </div>
+        <div class="group">
+          <label class="lbl" for="szS">Specs <output data-out="szSpecs"></output></label>
+          <div class="numrow"><input type="range" id="szS" data-key="szSpecs" min="50" max="220" step="5"><input type="number" class="num" data-px="szSpecs" min="0" step="1" inputmode="numeric" aria-label="Specs in pixels"><span class="unit">px</span></div>
+        </div>
+        <div class="group">
+          <label class="lbl" for="szD">Date &amp; Note <output data-out="szDate"></output></label>
+          <div class="numrow"><input type="range" id="szD" data-key="szDate" min="50" max="220" step="5"><input type="number" class="num" data-px="szDate" min="0" step="1" inputmode="numeric" aria-label="Date &amp; Note in pixels"><span class="unit">px</span></div>
+        </div>
+
+        <div class="colors">
+          <div class="group">
+            <label class="lbl" for="frameColor">Frame Color</label>
+            <input type="color" id="frameColor" data-key="frameColor">
+          </div>
+          <div class="group">
+            <label class="lbl" for="textColor">Text Color</label>
+            <input type="color" id="textColor" data-key="textColor">
+          </div>
+        </div>
+        <div class="presets group" id="presets"><span class="lbl">Presets</span></div>
+
+        <div class="group">
+          <label class="lbl" for="font">Font</label>
+          <select id="font" data-key="font"></select>
+        </div>
+
+        <div class="sec">
+          <h2>
+            <span>Metadata Settings</span>
+            <span class="tabs" id="tabsMode" data-key="mode">
+              <button data-v="digital">Digital</button>
+              <button data-v="film">Film</button>
+            </span>
+          </h2>
+          <div class="group">
+            <label class="lbl" for="dateFmt">Date Format</label>
+            <select id="dateFmt" data-key="dateFmt">
+              <option value="time-date">16:38:43  2025.03.05</option>
+              <option value="date-time">2025.03.05  16:38:43</option>
+              <option value="iso">2025-03-05 16:38</option>
+              <option value="slash">2025/03/05</option>
+              <option value="long">5 Mar 2025</option>
+              <option value="long-time">5 Mar 2025  16:38</option>
+            </select>
+          </div>
+          <div id="fields"></div>
+          <div class="row-actions" style="margin-bottom:6px">
+            <button class="linkbtn" id="btnResetExif">Reset this photo to EXIF values</button>
+          </div>
+        </div>
+
+        <div class="sec">
+          <h2>Templates</h2>
+          <div class="tpl-add">
+            <input type="text" id="tplName" placeholder="Template name" maxlength="40" aria-label="Template name">
+            <button class="btn" id="btnSaveTpl">Save</button>
+          </div>
+          <div class="tpl-list" id="tplList"></div>
+          <div class="row-actions">
+            <button class="btn small ghost" id="btnTplExport">Export JSON</button>
+            <button class="btn small ghost" id="btnTplImport">Import JSON</button>
+          </div>
+          <p class="empty" style="margin-top:12px">Templates are stored in this browser. Export them to back up or move to another device.</p>
+        </div>
+      </div>
+      <div class="panel-foot">
+        <button class="btn primary wide" id="btnDefault">
+          <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></svg>
+          Save as Auto-Export Default
+        </button>
+        <button class="linkbtn" id="btnFactory">Reset to factory settings</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<input type="file" id="fileFiles" accept="image/*" multiple hidden>
+<input type="file" id="fileDir" webkitdirectory multiple hidden>
+<input type="file" id="fileTpl" accept="application/json,.json" hidden>
+<div class="overlay" id="expOverlay" hidden>
+  <div class="dlg" role="dialog" aria-labelledby="expTitle">
+    <h3 id="expTitle">Export settings</h3>
+    <div class="group">
+      <div class="lbl">File format</div>
+      <div class="seg" id="segFmt">
+        <button data-v="jpg">JPG</button>
+        <button data-v="png">PNG</button>
+      </div>
+    </div>
+    <div class="group">
+      <label class="lbl" for="qR">JPG quality <output id="qO"></output></label>
+      <input type="range" id="qR" min="60" max="100" step="1">
+    </div>
+    <div class="group">
+      <label class="lbl" for="maxSel">Longest side</label>
+      <select id="maxSel">
+        <option value="0">Original size</option>
+        <option value="4096">4096 px</option>
+        <option value="3000">3000 px</option>
+        <option value="2048">2048 px</option>
+        <option value="1080">1080 px</option>
+      </select>
+    </div>
+    <div class="group" id="folderRow">
+      <div class="lbl">Save to folder</div>
+      <div class="numrow" style="grid-template-columns:minmax(0,1fr) auto">
+        <div id="folderName" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">Not chosen yet</div>
+        <button class="btn small" id="btnFolder">Choose folder…</button>
+      </div>
+      <div class="lbl" style="font-size:12px">Once chosen, Export saves straight into this folder with no extra steps.</div>
+    </div>
+    <div class="checks" style="margin:0">
+      <label><input type="checkbox" id="chkKeep"> Keep original EXIF data (camera, lens, exposure, date)</label>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnExportAll">Export all (.zip)</button>
+      <button class="btn primary" id="btnExpDone">Done</button>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="selOverlay" hidden>
+  <div class="dlg wide" role="dialog" aria-labelledby="selTitle">
+    <h3 id="selTitle">Choose photos to export</h3>
+    <div class="seltop">
+      <span id="selCount"></span>
+      <span><button class="linkbtn" id="selAll">Select all</button> &nbsp;·&nbsp; <button class="linkbtn" id="selNone">Select none</button></span>
+    </div>
+    <div class="selgrid" id="selGrid"></div>
+    <div class="foot">
+      <button class="btn" id="selCancel">Cancel</button>
+      <button class="btn primary" id="selGo">Export</button>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="saveOverlay" hidden>
+  <div class="dlg">
+    <h3>Save your framed photo</h3>
+    <p style="margin:0;color:var(--muted)">Direct download is not available in this view. Right-click the image (or press and hold on a phone) and choose Save image.</p>
+    <img id="saveImg" alt="Framed photo">
+    <div class="foot"><button class="btn primary" id="btnSaveClose">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+
+  /* ---------- constants ---------- */
+  var FONTS = [
+    { id: "default", label: "Default (Arial)", css: "Arial, Helvetica, sans-serif" },
+    { id: "inter", label: "Inter", css: '"Inter", Arial, sans-serif', load: "Inter" },
+    { id: "montserrat", label: "Montserrat", css: '"Montserrat", Arial, sans-serif', load: "Montserrat" },
+    { id: "oswald", label: "Oswald", css: '"Oswald", "Arial Narrow", sans-serif', load: "Oswald" },
+    { id: "playfair", label: "Playfair Display", css: '"Playfair Display", Georgia, serif', load: "Playfair Display" },
+    { id: "spacemono", label: "Space Mono", css: '"Space Mono", "Courier New", monospace', load: "Space Mono" },
+    { id: "georgia", label: "Georgia", css: "Georgia, 'Times New Roman', serif" },
+    { id: "courier", label: "Courier New", css: '"Courier New", Courier, monospace' },
+    { id: "thai", label: "Noto Sans Thai", css: '"Noto Sans Thai", Arial, sans-serif', load: "Noto Sans Thai" }
+  ];
+  var STYLES = [
+    { id: "classic", label: "Classic" },
+    { id: "split", label: "Split" },
+    { id: "polaroid", label: "Polaroid" },
+    { id: "minimal", label: "Minimal" },
+    { id: "overlay", label: "Overlay" }
+  ];
+  var PRESETS = [["#ffffff", "#000000"], ["#000000", "#ffffff"], ["#f3efe6", "#2b2723"], ["#e6e6e6", "#222222"], ["#14202e", "#e6edf5"], ["#d9c7a3", "#2a2118"]];
+  var DIGITAL = [
+    { k: "camera", label: "Camera", full: true },
+    { k: "lens", label: "Lens", full: true },
+    { k: "focal", label: "Focal Length" }, { k: "aperture", label: "Aperture" },
+    { k: "shutter", label: "Shutter Speed" }, { k: "iso", label: "ISO" },
+    { k: "date", label: "Date", full: true }, { k: "custom", label: "Custom Text", full: true }
+  ];
+  var FILM = [
+    { k: "camera", label: "Camera", full: true },
+    { k: "lens", label: "Lens", full: true },
+    { k: "film", label: "Film Stock" }, { k: "filmIso", label: "Box ISO" },
+    { k: "date", label: "Date", full: true }, { k: "custom", label: "Custom Text", full: true }
+  ];
+  var SEP = { pipe: " | ", dot: "  \u00b7  ", space: "   " };
+  var STYLE_DEF = { classic: { border: 3, barH: 100 }, split: { border: 0, barH: 100 }, polaroid: { border: 3, barH: 100 }, minimal: { border: 2, barH: 100 }, overlay: { border: 0, barH: 100 } };
+  var DEFAULTS = {
+    style: "split", aspect: "auto", orient: "landscape", valign: "top", sep: "space", divider: false,
+    border: 0, barH: 100, szCamera: 100, szLens: 100, szSpecs: 100, szDate: 100,
+    frameColor: "#ffffff", textColor: "#000000", font: "inter", dateFmt: "time-date",
+    mode: "digital", brand: false, upper: false,
+    show: { camera: true, lens: true, focal: true, aperture: true, shutter: true, iso: true, date: true, custom: false, film: true, filmIso: true },
+    exp: { fmt: "jpg", q: 92, max: 0, keepExif: true }
+  };
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function fmtDate(d, f) {
+    var p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+    var y = d.getFullYear(), mo = p2(d.getMonth() + 1), da = p2(d.getDate());
+    var t = p2(d.getHours()) + ":" + p2(d.getMinutes()), ts = t + ":" + p2(d.getSeconds());
+    if (f === "date-time") return y + "." + mo + "." + da + "  " + ts;
+    if (f === "iso") return y + "-" + mo + "-" + da + " " + t;
+    if (f === "slash") return y + "/" + mo + "/" + da;
+    if (f === "long") return d.getDate() + " " + MON[d.getMonth()] + " " + y;
+    if (f === "long-time") return d.getDate() + " " + MON[d.getMonth()] + " " + y + "  " + t;
+    return ts + "  " + y + "." + mo + "." + da;
+  }
+
+  /* ---------- storage ---------- */
+  var mem = {};
+  var store = {
+    get: function (k) {
+      try { var v = localStorage.getItem(k); if (v != null) return JSON.parse(v); } catch (e) {}
+      return mem[k] == null ? null : mem[k];
+    },
+    set: function (k, v) { mem[k] = v; try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function norm(o) {
+    var d = clone(DEFAULTS); o = o || {};
+    var r = Object.assign(d, o);
+    r.show = Object.assign(clone(DEFAULTS.show), o.show || {});
+    r.exp = Object.assign(clone(DEFAULTS.exp), o.exp || {});
+    return r;
+  }
+
+  /* ---------- state ---------- */
+  var S = norm(store.get("exifframe.default"));
+  var templates = store.get("exifframe.templates") || [];
+  var activeTpl = null;
+  var images = [];
+  var cur = -1;
+  var token = 0;
+  var cv = $("#cv");
+  var nextId = 1;
+
+  /* ---------- helpers ---------- */
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  var toastTimer;
+  function toast(msg) {
+    var t = $("#toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
+  }
+  function fontOf() { return FONTS.filter(function (f) { return f.id === S.font; })[0] || FONTS[0]; }
+  function ensureFont() {
+    var f = fontOf();
+    if (!f.load || !document.fonts) return Promise.resolve();
+    return Promise.all([
+      document.fonts.load('400 20px "' + f.load + '"'),
+      document.fonts.load('500 20px "' + f.load + '"'),
+      document.fonts.load('700 20px "' + f.load + '"')
+    ]).catch(function () {});
+  }
+
+  /* ---------- EXIF ---------- */
+  function fromExif(raw, make) {
+    var v = { camera: "", lens: "", focal: "", aperture: "", shutter: "", iso: "", date: "", custom: "", film: "", filmIso: "" };
+    if (!raw) return v;
+    v.camera = (raw.Model || "").toString().trim();
+    v.lens = (raw.LensModel || "").toString().trim();
+    if (raw.FocalLength) v.focal = Math.round(raw.FocalLength) + "mm";
+    if (raw.FNumber) v.aperture = "f/" + (+raw.FNumber.toFixed(1));
+    if (raw.ExposureTime) {
+      var t = raw.ExposureTime;
+      v.shutter = t >= 0.3 ? (+t.toFixed(1)) + "s" : "1/" + Math.round(1 / t) + "s";
+    }
+    if (raw.ISO) v.iso = "ISO" + (Array.isArray(raw.ISO) ? raw.ISO[0] : raw.ISO);
+    var d = raw.DateTimeOriginal || raw.CreateDate;
+    if (d instanceof Date && !isNaN(d)) v.date = fmtDate(d, S.dateFmt);
+    return v;
+  }
+  function ownExif(ab) {
+    var dv = new DataView(ab), len = dv.byteLength, tiff = -1;
+    if (len > 4 && dv.getUint16(0) === 0xFFD8) {
+      var o = 2;
+      while (o + 4 < len) {
+        if (dv.getUint8(o) !== 0xFF) { o++; continue; }
+        var mk = dv.getUint8(o + 1);
+        if (mk === 0xFF) { o++; continue; }
+        if (mk === 0xD8 || mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { o += 2; continue; }
+        if (mk === 0xE1 && o + 10 < len && dv.getUint32(o + 4) === 0x45786966 && dv.getUint16(o + 8) === 0) { tiff = o + 10; break; }
+        if (mk === 0xDA) break;
+        o += 2 + dv.getUint16(o + 2);
+      }
+    } else if (len > 8 && (dv.getUint16(0) === 0x4949 || dv.getUint16(0) === 0x4D4D)) { tiff = 0; }
+    if (tiff < 0) return null;
+    var le = dv.getUint16(tiff) === 0x4949;
+    function u16(p) { return dv.getUint16(p, le); }
+    function u32(p) { return dv.getUint32(p, le); }
+    var SZ = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
+    function val(e) {
+      var sz = (SZ[e.t] || 1) * e.c, vp = sz <= 4 ? e.p + 8 : tiff + u32(e.p + 8);
+      if (vp + sz > len) return null;
+      if (e.t === 2) { var s = ""; for (var i = 0; i < e.c; i++) { var c = dv.getUint8(vp + i); if (c === 0) break; s += String.fromCharCode(c); } return s.trim(); }
+      if (e.t === 3) return u16(vp);
+      if (e.t === 4) return u32(vp);
+      if (e.t === 5) { var d = u32(vp + 4); return d ? u32(vp) / d : 0; }
+      if (e.t === 10) { var dd = dv.getInt32(vp + 4, le); return dd ? dv.getInt32(vp, le) / dd : 0; }
+      if (e.t === 1 || e.t === 7) return dv.getUint8(vp);
+      return null;
+    }
+    function ifd(off) {
+      var out = {}, p = tiff + off;
+      if (p + 2 > len) return out;
+      var n = u16(p);
+      for (var i = 0; i < n; i++) { var ep = p + 2 + i * 12; if (ep + 12 > len) break; out[u16(ep)] = { t: u16(ep + 2), c: u32(ep + 4), p: ep }; }
+      return out;
+    }
+    function g(t, tag) { return t[tag] ? val(t[tag]) : null; }
+    function dt(str) {
+      var m = /(\d+):(\d+):(\d+)[ T](\d+):(\d+):(\d+)/.exec(str || "");
+      return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
+    }
+    var i0 = ifd(u32(tiff + 4));
+    var raw = { Make: g(i0, 0x010F), Model: g(i0, 0x0110) };
+    var exOff = g(i0, 0x8769);
+    if (exOff) {
+      var ex = ifd(exOff);
+      raw.ExposureTime = g(ex, 0x829A); raw.FNumber = g(ex, 0x829D);
+      raw.ISO = g(ex, 0x8827) || g(ex, 0x8833);
+      raw.DateTimeOriginal = dt(g(ex, 0x9003)); raw.CreateDate = dt(g(ex, 0x9004));
+      raw.FocalLength = g(ex, 0x920A);
+      raw.LensModel = g(ex, 0xA434); raw.LensMake = g(ex, 0xA433);
+    }
+    return raw;
+  }
+  /* the raw EXIF payload (TIFF block) of a JPEG, so it can be copied into the exported file */
+  function exifBlock(ab) {
+    var dv = new DataView(ab), len = dv.byteLength;
+    if (len < 4 || dv.getUint16(0) !== 0xFFD8) return null;
+    var o = 2;
+    while (o + 4 < len) {
+      if (dv.getUint8(o) !== 0xFF) { o++; continue; }
+      var mk = dv.getUint8(o + 1);
+      if (mk === 0xFF) { o++; continue; }
+      if (mk === 0xD8 || mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { o += 2; continue; }
+      if (mk === 0xDA) break;
+      var sl = dv.getUint16(o + 2);
+      if (mk === 0xE1 && o + 10 < len && dv.getUint32(o + 4) === 0x45786966 && dv.getUint16(o + 8) === 0) {
+        var end = o + 2 + sl; if (end > len) return null;
+        return new Uint8Array(ab.slice(o + 10, end));
+      }
+      o += 2 + sl;
+    }
+    return null;
+  }
+  function patchBlock(src, w, h) {
+    var b = new Uint8Array(src), dv = new DataView(b.buffer), len = b.length;
+    if (len < 8) return b;
+    var le = dv.getUint16(0) === 0x4949;
+    function u16(p) { return dv.getUint16(p, le); }
+    function u32(p) { return dv.getUint32(p, le); }
+    function setVal(ep, v) { var t = u16(ep + 2); if (t === 3) dv.setUint16(ep + 8, Math.min(v, 65535), le); else if (t === 4) dv.setUint32(ep + 8, v, le); }
+    function walk(off, fn) {
+      if (off + 2 > len) return -1;
+      var n = u16(off);
+      for (var i = 0; i < n; i++) { var ep = off + 2 + i * 12; if (ep + 12 > len) break; fn(u16(ep), ep); }
+      return off + 2 + n * 12;
+    }
+    var exOff = 0;
+    var next = walk(u32(4), function (tag, ep) {
+      if (tag === 0x0112 && u16(ep + 2) === 3) dv.setUint16(ep + 8, 1, le);
+      else if (tag === 0x0100) setVal(ep, w);
+      else if (tag === 0x0101) setVal(ep, h);
+      else if (tag === 0x8769) exOff = u32(ep + 8);
+    });
+    if (next > 0 && next + 4 <= len) dv.setUint32(next, 0, le);
+    if (exOff && exOff < len) walk(exOff, function (tag, ep) { if (tag === 0xA002) setVal(ep, w); else if (tag === 0xA003) setVal(ep, h); });
+    return b;
+  }
+  function injectJpeg(blob, block) {
+    return blob.arrayBuffer().then(function (ab) {
+      var u = new Uint8Array(ab);
+      if (u[0] !== 0xFF || u[1] !== 0xD8 || block.length > 65527) return blob;
+      var at = 2;
+      if (u[2] === 0xFF && u[3] === 0xE0) at = 4 + ((u[4] << 8) | u[5]);
+      var seg = new Uint8Array(10 + block.length), l = 8 + block.length;
+      seg[0] = 0xFF; seg[1] = 0xE1; seg[2] = l >> 8; seg[3] = l & 255;
+      seg.set([0x45, 0x78, 0x69, 0x66, 0, 0], 4); seg.set(block, 10);
+      return new Blob([u.subarray(0, at), seg, u.subarray(at)], { type: "image/jpeg" });
+    });
+  }
+  function injectPng(blob, block) {
+    return blob.arrayBuffer().then(function (ab) {
+      var u = new Uint8Array(ab), at = 33;
+      var chunk = new Uint8Array(12 + block.length), dv = new DataView(chunk.buffer);
+      dv.setUint32(0, block.length); chunk.set([0x65, 0x58, 0x49, 0x66], 4); chunk.set(block, 8);
+      dv.setUint32(8 + block.length, CRC(chunk.subarray(4, 8 + block.length)));
+      return new Blob([u.subarray(0, at), chunk, u.subarray(at)], { type: "image/png" });
+    });
+  }
+  function viaExifr(file) {
+    if (!window.exifr) return Promise.resolve(null);
+    return window.exifr.parse(file, { tiff: true, ifd0: true, exif: true, gps: false, xmp: false, icc: false, iptc: false, jfif: false, ihdr: false, mergeOutput: true }).catch(function () { return null; });
+  }
+  function readExif(file) {
+    return file.slice(0, 1048576).arrayBuffer().then(function (ab) {
+      var raw = null;
+      try { raw = ownExif(ab); } catch (e) { raw = null; }
+      if (raw && (raw.Model || raw.FNumber || raw.ExposureTime || raw.FocalLength)) return raw;
+      return viaExifr(file).then(function (r) { return r || raw; });
+    }).catch(function () { return viaExifr(file); });
+  }
+
+  /* ---------- images ---------- */
+  function makeThumb(img, w, h) {
+    var c = document.createElement("canvas"), s = 200 / Math.max(w, h);
+    c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.8);
+  }
+  function loadImage(url) {
+    return new Promise(function (res, rej) {
+      var im = new Image();
+      im.onload = function () { res(im); };
+      im.onerror = function () { rej(new Error("decode")); };
+      im.src = url;
+    });
+  }
+  function addFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList).filter(function (f) {
+      return /^image\/(jpeg|png|webp|tiff|gif|bmp)/.test(f.type) || /\.(jpe?g|png|webp|tiff?)$/i.test(f.name);
+    });
+    if (!files.length) { toast("No supported photos found (JPG, PNG, WebP, TIFF)."); return Promise.resolve(); }
+    files.sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true }); });
+    var hadSample = images.length === 1 && images[0].sample;
+    var firstNew = hadSample ? 0 : images.length;
+    var failed = 0;
+    var chain = Promise.resolve();
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        var url = URL.createObjectURL(f);
+        return Promise.all([loadImage(url), readExif(f), f.slice(0, 1048576).arrayBuffer().then(exifBlock).catch(function () { return null; })]).then(function (r) {
+          var img = r[0], raw = r[1];
+          var auto = fromExif(raw);
+          var dobj = raw && (raw.DateTimeOriginal || raw.CreateDate);
+          dobj = dobj instanceof Date && !isNaN(dobj) ? dobj : null;
+          images.push({
+            id: nextId++, name: f.name, path: f.webkitRelativePath || f.name, img: img,
+            w: img.naturalWidth, h: img.naturalHeight, dateObj: dobj, exifBlock: r[2], make: raw && raw.Make ? String(raw.Make).trim() : "",
+            auto: auto, values: clone(auto), thumb: makeThumb(img, img.naturalWidth, img.naturalHeight), sample: false, hasExif: !!raw
+          });
+        }).catch(function () { failed++; });
+      });
+    });
+    return chain.then(function () {
+      if (hadSample && images.length > 1) images.shift();
+      if (images.length > firstNew || hadSample) { cur = Math.min(Math.max(hadSample ? 0 : firstNew, 0), images.length - 1); }
+      if (failed) toast(failed + " file(s) could not be opened.");
+      var im = images[cur];
+      if (im && !im.sample && !im.hasExif) toast("No EXIF data found in this photo. Fill in the fields by hand.");
+      afterSelect();
+    });
+  }
+  function sampleImage() {
+    var W = 1800, H = 1200, c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    var g = c.getContext("2d");
+    var sky = g.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#27324a"); sky.addColorStop(0.55, "#c98a6b"); sky.addColorStop(1, "#f0c48a");
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    g.fillStyle = "rgba(255,236,200,.9)"; g.beginPath(); g.arc(1250, 640, 120, 0, 6.2832); g.fill();
+    function hill(y, amp, col, ph) {
+      g.fillStyle = col; g.beginPath(); g.moveTo(0, H);
+      for (var x = 0; x <= W; x += 20) g.lineTo(x, y + Math.sin(x / 260 + ph) * amp + Math.sin(x / 90 + ph * 2) * amp * 0.25);
+      g.lineTo(W, H); g.closePath(); g.fill();
+    }
+    hill(760, 70, "#7a5a63", 0.5); hill(860, 60, "#4b3c4d", 1.7); hill(980, 50, "#241f2e", 3.1);
+    var im = new Image(); // not used; canvas is the drawable
+    return c;
+  }
+  function addSample() {
+    var c = sampleImage();
+    var sd = new Date(2025, 2, 5, 16, 38, 43);
+    var auto = { camera: "Canon EOS R6m2", lens: "RF70-200mm F2.8 L IS USM", focal: "135mm", aperture: "f/3.2", shutter: "1/15s", iso: "ISO100", date: fmtDate(sd, S.dateFmt), custom: "", film: "", filmIso: "" };
+    images.push({ id: nextId++, name: "SAMPLE.JPG", path: "Sample/SAMPLE.JPG", img: c, w: c.width, h: c.height, dateObj: sd, make: "Canon", auto: auto, values: clone(auto), thumb: makeThumb(c, c.width, c.height), sample: true, hasExif: true });
+    cur = 0;
+  }
+
+  /* ---------- layout + paint ---------- */
+  function lines(im) {
+    var v = im.values, sh = S.show, digital = S.mode === "digital";
+    function g(k) { var x = sh[k] && v[k] != null ? String(v[k]).trim() : ""; return x; }
+    var camera = g("camera");
+    if (camera && S.brand && im.make && v.camera === im.auto.camera && camera.toLowerCase().indexOf(im.make.toLowerCase()) < 0) camera = im.make + " " + camera;
+    if (camera && S.upper) camera = camera.toUpperCase();
+    var specs = (digital ? ["focal", "aperture", "shutter", "iso"] : ["film", "filmIso"]).map(g).filter(Boolean);
+    return { camera: camera, lens: g("lens"), specs: specs, date: g("date"), custom: g("custom") };
+  }
+  function plan(im) {
+    var iw = im.w, ih = im.h, u = iw, st = S.style, kb = S.barH / 100;
+    var p = { iw: iw, ih: ih, u: u, pad: 0, A: 0, main: 0, bar: 0 };
+    var b = u * S.border / 100;
+    if (st === "classic") { p.pad = b; p.main = u * 0.0235; p.A = p.main * 6.4 * kb; }
+    else if (st === "polaroid") { p.pad = b * 1.8; p.main = u * 0.03; p.A = (p.main * 4.6 + p.pad * 0.8) * kb; }
+    else if (st === "minimal") { p.pad = b * 0.7; p.main = u * 0.017; p.A = p.main * 3.6 * kb; }
+    else if (st === "split") { p.pad = b; p.A = u * 0.1 * kb; }
+    else { p.pad = b; p.A = 0; p.bar = u * 0.14 * kb; }
+    p.blockW = iw + 2 * p.pad;
+    p.blockH = p.pad + ih + p.A;
+    var W = p.blockW, H = p.blockH;
+    if (S.aspect !== "auto") {
+      var ab = S.aspect.split(":").map(Number), ar = ab[0] / ab[1];
+      if (S.aspect !== "1:1" && S.orient === "portrait") ar = 1 / ar;
+      if (W / H > ar) H = W / ar; else W = H * ar;
+    }
+    p.W = W; p.H = H;
+    p.ox = (W - p.blockW) / 2;
+    p.oy = S.valign === "center" ? (H - p.blockH) / 2 : 0;
+    return p;
+  }
+  function paint(canvas, im, sc) {
+    var p = plan(im), L = lines(im), sep = SEP[S.sep] || SEP.pipe, f = fontOf(), st = S.style, u = p.u;
+    var kc = S.szCamera / 100, kl = S.szLens / 100, ks = S.szSpecs / 100, kd = S.szDate / 100;
+    canvas.width = Math.max(1, Math.round(p.W * sc)); canvas.height = Math.max(1, Math.round(p.H * sc));
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(sc, 0, 0, sc, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = S.frameColor; ctx.fillRect(0, 0, p.W, p.H);
+    var px = p.ox + p.pad, py = p.oy + p.pad;
+    if (st === "polaroid") { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.22)"; ctx.shadowBlur = u * 0.012; ctx.shadowOffsetY = u * 0.004; ctx.fillStyle = "#000"; ctx.fillRect(px, py, p.iw, p.ih); ctx.restore(); }
+    ctx.drawImage(im.img, px, py, p.iw, p.ih);
+
+    function R(t, s, w, a) { return { t: t, s: s, w: w, a: a }; }
+    function joinRuns(items) {
+      var out = [];
+      items.forEach(function (it, i) {
+        if (i) { var pv = items[i - 1]; out.push(R(sep, Math.min(pv.s, it.s), 400, S.sep === "space" ? 1 : Math.min(pv.a, it.a) * 0.6)); }
+        out.push(it);
+      });
+      return out;
+    }
+    function measure(runs) {
+      var w = 0;
+      runs.forEach(function (r) { ctx.font = r.w + " " + r.s + "px " + f.css; w += ctx.measureText(r.t).width; });
+      return w;
+    }
+    function maxS(runs) { var m = 0; runs.forEach(function (r) { if (r.s > m) m = r.s; }); return m; }
+    function drawRuns(runs, x, y, align, maxW, k) {
+      var tw = measure(runs);
+      if (k == null) k = tw > maxW ? maxW / tw : 1;
+      var xx = align === "center" ? x - tw * k / 2 : align === "right" ? x - tw * k : x;
+      runs.forEach(function (r) {
+        var sz = r.s * k;
+        ctx.font = r.w + " " + sz + "px " + f.css; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.globalAlpha = r.a; ctx.fillStyle = S.textColor; ctx.fillText(r.t, xx, y); xx += ctx.measureText(r.t).width;
+      });
+      ctx.globalAlpha = 1;
+    }
+    /* y positions for one or two stacked lines centered on cy */
+    function ys(r1, r2, cy) {
+      if (r1.length && r2.length) { var gap = 0.82 * (maxS(r1) + maxS(r2)); return [cy - gap / 2, cy + gap / 2]; }
+      return [cy, cy];
+    }
+    /* a left-aligned two-line block whose right edge sits at rEdge */
+    function rightBlock(r1, r2, rEdge, cy, maxW) {
+      var w = Math.max(measure(r1), measure(r2));
+      var k = w > maxW ? maxW / w : 1;
+      var x = rEdge - w * k, yy = ys(r1, r2, cy);
+      if (r1.length) drawRuns(r1, x, yy[0], "left", null, k);
+      if (r2.length) drawRuns(r2, x, yy[1], "left", null, k);
+      return x;
+    }
+    function rightWidth(r1, r2, maxW) { var w = Math.max(measure(r1), measure(r2)); return w > maxW ? maxW : w; }
+
+    var ty = py + p.ih, cx = p.ox + p.blockW / 2;
+    if (st === "classic" || st === "polaroid") {
+      var m = p.main, w1 = st === "polaroid" ? 600 : 500, maxW = p.blockW * 0.94;
+      var mainItems = [], subItems = [];
+      if (L.camera) mainItems.push(R(L.camera, m * kc, w1, 1));
+      if (L.lens) mainItems.push(R(L.lens, m * kl, w1, 0.85));
+      L.specs.forEach(function (t) { subItems.push(R(t, m * 0.62 * ks, 400, 0.72)); });
+      [L.date, L.custom].forEach(function (t) { if (t) subItems.push(R(t, m * 0.62 * kd, 400, 0.72)); });
+      var m1 = joinRuns(mainItems), s1 = joinRuns(subItems), yy = ys(m1, s1, ty + p.A * 0.5);
+      if (m1.length) drawRuns(m1, cx, yy[0], "center", maxW);
+      if (s1.length) drawRuns(s1, cx, yy[1], "center", maxW);
+    } else if (st === "minimal") {
+      var mm = p.main, items = [];
+      if (L.camera) items.push(R(L.camera, mm * kc, 500, 1));
+      if (L.lens) items.push(R(L.lens, mm * kl, 400, 0.85));
+      L.specs.forEach(function (t) { items.push(R(t, mm * ks, 400, 0.85)); });
+      [L.date, L.custom].forEach(function (t) { if (t) items.push(R(t, mm * kd, 400, 0.6)); });
+      drawRuns(joinRuns(items), cx, ty + p.A * 0.5, "center", p.blockW * 0.94);
+    } else {
+      var isSplit = st === "split", by, bh, cy, base;
+      if (isSplit) { by = ty; bh = p.A; cy = by + bh * 0.51; base = { cam: 0.0283, lens: 0.0167, spec: 0.024, date: 0.0175, la: 0.42, da: 0.42 }; }
+      else {
+        bh = p.bar; by = ty - bh; cy = by + bh * 0.74; base = { cam: 0.024, lens: 0.0155, spec: 0.0185, date: 0.0155, la: 0.85, da: 0.75 };
+        var gr = ctx.createLinearGradient(0, by, 0, by + bh), rgb = hexToRgb(S.frameColor);
+        gr.addColorStop(0, "rgba(" + rgb + ",0)"); gr.addColorStop(0.55, "rgba(" + rgb + ",.8)"); gr.addColorStop(1, "rgba(" + rgb + ",.94)");
+        ctx.fillStyle = gr; ctx.fillRect(px, by, p.iw, bh);
+      }
+      var mg = u * 0.033, lx = px + mg, rEdge = px + p.iw - mg;
+      var c1 = L.camera ? [R(L.camera, u * base.cam * kc, 600, 1)] : [];
+      var c2 = L.lens ? [R(L.lens, u * base.lens * kl, 400, base.la)] : [];
+      var specItems = L.specs.map(function (t) { return R(t, u * base.spec * ks, 600, 1); });
+      var dateItems = [L.date, L.custom].filter(Boolean).map(function (t) { return R(t, u * base.date * kd, 400, base.da); });
+      var r1 = joinRuns(specItems), r2 = joinRuns(dateItems);
+      var hasL = c1.length || c2.length, hasR = r1.length || r2.length;
+      var rMax = u * 0.6, rw = rightWidth(r1, r2, rMax);
+      var rx = rEdge - rw, leftMax = hasR ? rx - lx - u * 0.03 : rEdge - lx;
+      var ly = ys(c1, c2, cy);
+      if (c1.length) drawRuns(c1, lx, ly[0], "left", leftMax);
+      if (c2.length) drawRuns(c2, lx, ly[1], "left", leftMax);
+      if (hasR) rightBlock(r1, r2, rEdge, cy, rMax);
+      if (isSplit && S.divider && hasL && hasR) {
+        ctx.globalAlpha = 0.28; ctx.fillStyle = S.textColor;
+        ctx.fillRect(rx - u * 0.018, by + bh * 0.2, Math.max(1, u * 0.0014), bh * 0.6); ctx.globalAlpha = 1;
+      }
+    }
+    return p;
+  }
+  function hexToRgb(h) {
+    h = h.replace("#", ""); if (h.length === 3) h = h.split("").map(function (c) { return c + c; }).join("");
+    var n = parseInt(h, 16); return ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255);
+  }
+
+  function draw() {
+    var im = images[cur]; if (!im) return;
+    var t = ++token;
+    ensureFont().then(function () {
+      if (t !== token) return;
+      var p = plan(im);
+      paint(cv, im, Math.min(1, 1600 / Math.max(p.W, p.H)));
+      fit();
+    });
+  }
+  var raf = 0;
+  function schedule() { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }
+  function fit() {
+    var stage = $("#stage"), cs = getComputedStyle(stage);
+    var aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    var ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (!(aw > 0 && ah > 0)) return;
+    var s = Math.min(aw / cv.width, ah / cv.height);
+    cv.style.width = Math.max(1, Math.floor(cv.width * s)) + "px";
+    cv.style.height = Math.max(1, Math.floor(cv.height * s)) + "px";
+  }
+  if (window.ResizeObserver) new ResizeObserver(fit).observe($("#stage")); else window.addEventListener("resize", fit);
+
+  /* ---------- UI: strip, crumb, fields ---------- */
+  function renderStrip() {
+    var s = $("#strip"); s.innerHTML = "";
+    images.forEach(function (im, i) {
+      var b = document.createElement("div");
+      b.className = "thumb"; b.setAttribute("role", "button"); b.tabIndex = 0;
+      b.setAttribute("aria-label", "Select " + im.name);
+      b.setAttribute("aria-current", i === cur ? "true" : "false");
+      var img = document.createElement("img"); img.src = im.thumb; img.alt = ""; b.appendChild(img);
+      if (!im.sample) {
+        var x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.title = "Remove"; x.dataset.rm = "1"; b.appendChild(x);
+      }
+      b.addEventListener("click", function (e) {
+        if (e.target.dataset.rm) { removeImage(i); return; }
+        cur = i; afterSelect();
+      });
+      b.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur = i; afterSelect(); } });
+      s.appendChild(b);
+    });
+    var add = document.createElement("button"); add.className = "thumb add"; add.textContent = "+"; add.setAttribute("aria-label", "Add photos");
+    add.addEventListener("click", function () { $("#fileFiles").click(); });
+    s.appendChild(add);
+  }
+  function removeImage(i) {
+    images.splice(i, 1);
+    if (!images.length) { addSample(); }
+    cur = Math.min(cur, images.length - 1); if (cur < 0) cur = 0;
+    afterSelect();
+  }
+  function afterSelect() {
+    var im = images[cur];
+    $("#crumb").textContent = im ? im.path.split("/").join("  >  ") : "";
+    $("#banner").hidden = !(im && im.sample);
+    renderStrip(); renderFields(); syncUI(); schedule();
+  }
+  var EYE_ON = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>';
+  function fieldHTML(def, im) {
+    var on = !!S.show[def.k];
+    return '<div class="field"><div class="lbl"><label for="f_' + def.k + '">' + def.label + '</label>' +
+      '<button class="eye" data-eye="' + def.k + '" aria-pressed="' + on + '" aria-label="' + (on ? "Hide " : "Show ") + def.label + ' on frame">' + (on ? EYE_ON : EYE_OFF) + '</button></div>' +
+      '<input type="text" id="f_' + def.k + '" data-val="' + def.k + '" value="" autocomplete="off" spellcheck="false"' +
+      (def.k === "custom" ? ' placeholder="e.g. Shot on location"' : def.k === "film" ? ' placeholder="e.g. Kodak Portra 400"' : '') + '></div>';
+  }
+  function renderFields() {
+    var im = images[cur]; if (!im) return;
+    var defs = S.mode === "digital" ? DIGITAL : FILM, html = "", i = 0;
+    while (i < defs.length) {
+      var d = defs[i];
+      if (d.full) {
+        html += fieldHTML(d, im); i++;
+        if (d.k === "camera") {
+          html += '<div class="checks"><label><input type="checkbox" id="chkBrand"' + (S.brand ? " checked" : "") + '> Include brand</label><label><input type="checkbox" id="chkUpper"' + (S.upper ? " checked" : "") + '> UPPERCASE</label></div>';
+        }
+      } else {
+        html += '<div class="two">' + fieldHTML(d, im) + fieldHTML(defs[i + 1], im) + '</div>'; i += 2;
+      }
+    }
+    var host = $("#fields"); host.innerHTML = html;
+    $$("#fields [data-val]").forEach(function (inp) {
+      inp.value = im.values[inp.dataset.val] || "";
+      inp.addEventListener("input", function () { im.values[inp.dataset.val] = inp.value; schedule(); });
+    });
+    $$("#fields [data-eye]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var k = b.dataset.eye; S.show[k] = !S.show[k]; touch(); renderFields(); schedule();
+      });
+    });
+    var cb = $("#chkBrand"), cu = $("#chkUpper");
+    if (cb) cb.addEventListener("change", function () { S.brand = cb.checked; touch(); schedule(); });
+    if (cu) cu.addEventListener("change", function () { S.upper = cu.checked; touch(); schedule(); });
+    $$("#tabsMode button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === S.mode)); });
+  }
+
+  /* ---------- UI: settings controls ---------- */
+  function styleThumb(id) {
+    var c = "currentColor";
+    var inner = {
+      classic: '<rect x="9" y="5" width="46" height="28" fill="' + c + '" opacity=".35"/><rect x="20" y="40" width="24" height="2.5" rx="1" fill="' + c + '"/><rect x="25" y="46" width="14" height="2" rx="1" fill="' + c + '" opacity=".55"/>',
+      split: '<rect x="3" y="3" width="58" height="34" fill="' + c + '" opacity=".35"/><rect x="7" y="43" width="18" height="2.5" rx="1" fill="' + c + '"/><rect x="7" y="48" width="14" height="2" rx="1" fill="' + c + '" opacity=".55"/><rect x="38" y="42" width="1" height="9" fill="' + c + '" opacity=".6"/><rect x="42" y="43" width="16" height="2.5" rx="1" fill="' + c + '"/>',
+      polaroid: '<rect x="9" y="7" width="46" height="30" fill="' + c + '" opacity=".35"/><rect x="21" y="43" width="22" height="2.5" rx="1" fill="' + c + '"/><rect x="26" y="48" width="12" height="2" rx="1" fill="' + c + '" opacity=".55"/>',
+      minimal: '<rect x="5" y="4" width="54" height="38" fill="' + c + '" opacity=".35"/><rect x="18" y="46" width="28" height="2" rx="1" fill="' + c + '"/>',
+      overlay: '<rect x="3" y="3" width="58" height="48" fill="' + c + '" opacity=".35"/><rect x="3" y="36" width="58" height="15" fill="' + c + '" opacity=".35"/><rect x="8" y="41" width="18" height="2.5" rx="1" fill="' + c + '"/><rect x="8" y="46" width="12" height="2" rx="1" fill="' + c + '" opacity=".6"/><rect x="42" y="41" width="14" height="2.5" rx="1" fill="' + c + '"/>'
+    }[id];
+    return '<svg viewBox="0 0 64 54" aria-hidden="true"><rect x="0.5" y="0.5" width="63" height="53" rx="3" fill="none" stroke="currentColor" opacity=".45"/>' + inner + '</svg>';
+  }
+  function buildStatic() {
+    $("#styles").innerHTML = STYLES.map(function (s) {
+      return '<button class="style-btn" data-style="' + s.id + '" aria-pressed="false">' + styleThumb(s.id) + '<span>' + s.label + '</span></button>';
+    }).join("");
+    $$("#styles .style-btn").forEach(function (b) { b.addEventListener("click", function () { S.style = b.dataset.style; var d = STYLE_DEF[S.style]; if (d) { S.border = d.border; S.barH = d.barH; } touch(); syncUI(); schedule(); }); });
+    $("#font").innerHTML = FONTS.map(function (f) { return '<option value="' + f.id + '">' + f.label + '</option>'; }).join("");
+    var pr = $("#presets");
+    PRESETS.forEach(function (pair) {
+      var b = document.createElement("button"); b.className = "chip";
+      b.style.background = "linear-gradient(135deg," + pair[0] + " 50%," + pair[1] + " 50%)";
+      b.title = "Frame " + pair[0] + ", text " + pair[1]; b.setAttribute("aria-label", "Color preset " + pair[0] + " and " + pair[1]);
+      b.addEventListener("click", function () { S.frameColor = pair[0]; S.textColor = pair[1]; touch(); syncUI(); schedule(); });
+      pr.appendChild(b);
+    });
+    var sw = document.createElement("button"); sw.className = "linkbtn"; sw.textContent = "Swap"; sw.style.marginLeft = "auto";
+    sw.addEventListener("click", function () { var t = S.frameColor; S.frameColor = S.textColor; S.textColor = t; touch(); syncUI(); schedule(); });
+    pr.appendChild(sw);
+  }
+  function sizeBase(im) {
+    var u = im.w, st = S.style, m;
+    if (st === "classic" || st === "polaroid") { m = u * (st === "classic" ? 0.0235 : 0.03); return { szCamera: m, szLens: m, szSpecs: m * 0.62, szDate: m * 0.62 }; }
+    if (st === "minimal") { m = u * 0.017; return { szCamera: m, szLens: m, szSpecs: m, szDate: m }; }
+    if (st === "split") return { szCamera: u * 0.0283, szLens: u * 0.0167, szSpecs: u * 0.024, szDate: u * 0.0175 };
+    return { szCamera: u * 0.024, szLens: u * 0.0155, szSpecs: u * 0.0185, szDate: u * 0.0155 };
+  }
+  function borderFactor() { return { polaroid: 1.8, minimal: 0.7 }[S.style] || 1; }
+  function pxGet(k) {
+    var im = images[cur]; if (!im) return "";
+    if (k === "border") return Math.round(im.w * S.border / 100 * borderFactor());
+    if (k === "barH") { var pp = plan(im); return Math.round(pp.A || pp.bar); }
+    return Math.round(sizeBase(im)[k] * S[k] / 100);
+  }
+  function pxSet(k, v) {
+    var im = images[cur]; if (!im) return;
+    if (k === "border") S.border = Math.min(40, v * 100 / (im.w * borderFactor()));
+    else if (k === "barH") { var pp = plan(im), base = (pp.A || pp.bar) / (S.barH / 100); S.barH = Math.min(800, Math.max(1, v / base * 100)); }
+    else S[k] = Math.min(1000, Math.max(5, v / sizeBase(im)[k] * 100));
+  }
+  function refreshDates() {
+    images.forEach(function (im) {
+      if (!im.dateObj) return;
+      var n = fmtDate(im.dateObj, S.dateFmt);
+      if (im.values.date === im.auto.date) im.values.date = n;
+      im.auto.date = n;
+    });
+    renderFields();
+  }
+  function touch() { activeTpl = null; renderTemplates(); }
+  function syncUI() {
+    $$(".seg[data-key]").forEach(function (seg) {
+      Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b) { b.setAttribute("aria-pressed", String(S[seg.dataset.key] === b.dataset.v)); });
+    });
+    $$("#styles .style-btn").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.style === S.style)); });
+    $$("[data-key]").forEach(function (el) {
+      if (el.classList.contains("seg") || el.id === "tabsMode") return;
+      var v = S[el.dataset.key];
+      if (el.type === "checkbox") el.checked = !!v; else el.value = v;
+    });
+    $$("[data-out]").forEach(function (o) { o.textContent = (Math.round(S[o.dataset.out] * 10) / 10) + "%"; });
+    if (images[cur]) $$("input[data-px]").forEach(function (el) { if (document.activeElement !== el) el.value = pxGet(el.dataset.px); });
+    $("#segOrient").classList.toggle("disabled", S.aspect === "auto" || S.aspect === "1:1");
+    $$("#tabsMode button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === S.mode)); });
+    $$("#segFmt button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === S.exp.fmt)); });
+    $("#qR").value = S.exp.q; $("#qO").textContent = S.exp.q; $("#qR").disabled = S.exp.fmt !== "jpg";
+    $("#maxSel").value = String(S.exp.max);
+    $("#chkKeep").checked = !!S.exp.keepExif;
+  }
+  function bindControls() {
+    $$(".seg[data-key]").forEach(function (seg) {
+      seg.addEventListener("click", function (e) {
+        var b = e.target.closest("button"); if (!b) return;
+        S[seg.dataset.key] = b.dataset.v; touch(); syncUI(); schedule();
+      });
+    });
+    $$("input[data-px]").forEach(function (el) {
+      el.addEventListener("input", function () {
+        var v = parseFloat(el.value); if (!(v >= 0) || !images[cur]) return;
+        pxSet(el.dataset.px, v); touch(); syncUI(); schedule();
+      });
+      el.addEventListener("blur", function () { syncUI(); });
+    });
+    $("#tabsMode").addEventListener("click", function (e) {
+      var b = e.target.closest("button"); if (!b) return;
+      S.mode = b.dataset.v; touch(); renderFields(); schedule();
+    });
+    $$("select[data-key], input[data-key]").forEach(function (el) {
+      el.addEventListener("input", function () {
+        var k = el.dataset.key;
+        S[k] = el.type === "range" ? Number(el.value) : el.type === "checkbox" ? el.checked : el.value;
+        touch(); syncUI();
+        if (k === "dateFmt") refreshDates();
+        schedule();
+      });
+    });
+    $("#btnResetExif").addEventListener("click", function () {
+      var im = images[cur]; if (!im) return;
+      im.values = clone(im.auto); renderFields(); schedule(); toast("Fields restored from the photo's EXIF.");
+    });
+    /* export dialog */
+    $("#segFmt").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; S.exp.fmt = b.dataset.v; syncUI(); });
+    $("#qR").addEventListener("input", function () { S.exp.q = Number($("#qR").value); syncUI(); });
+    $("#btnFolder").addEventListener("click", function () { pickFolder(true).then(function (r) { if (r === "none") toast("Folder saving is not supported here. Files go to your Downloads folder instead."); }); });
+    $("#chkKeep").addEventListener("change", function () { S.exp.keepExif = $("#chkKeep").checked; });
+    $("#maxSel").addEventListener("change", function () { S.exp.max = Number($("#maxSel").value); });
+    $("#btnGear").addEventListener("click", function () { $("#expOverlay").hidden = false; });
+    $("#btnExpDone").addEventListener("click", function () { $("#expOverlay").hidden = true; });
+    $("#expOverlay").addEventListener("click", function (e) { if (e.target.id === "expOverlay") $("#expOverlay").hidden = true; });
+    $("#btnSaveClose").addEventListener("click", function () { $("#saveOverlay").hidden = true; });
+    $("#btnExport").addEventListener("click", startExport);
+    $("#selAll").addEventListener("click", function () { setAllPicked(true); });
+    $("#selNone").addEventListener("click", function () { setAllPicked(false); });
+    $("#selCancel").addEventListener("click", function () { $("#selOverlay").hidden = true; });
+    $("#selOverlay").addEventListener("click", function (e) { if (e.target.id === "selOverlay") $("#selOverlay").hidden = true; });
+    $("#selGo").addEventListener("click", function () {
+      var list = images.filter(function (im) { return picked[im.id]; });
+      $("#selOverlay").hidden = true;
+      if (list.length === 1) { var keep = cur; cur = images.indexOf(list[0]); exportCurrent(); cur = keep; }
+      else exportMany(list);
+    });
+    $("#btnExportAll").addEventListener("click", function () { $("#expOverlay").hidden = true; exportMany(images.slice()); });
+    /* defaults */
+    $("#btnDefault").addEventListener("click", function () { store.set("exifframe.default", clone(S)); toast("Saved. New sessions open with these frame settings."); });
+    $("#btnFactory").addEventListener("click", function () { S = norm(null); activeTpl = null; syncUI(); renderFields(); renderTemplates(); schedule(); toast("Settings reset. Press Save as Auto-Export Default to keep them."); });
+    /* open */
+    var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    if (coarse) $("#btnOpen").textContent = "Open Photos";
+    $("#btnOpen").addEventListener("click", function () { (coarse ? $("#fileFiles") : $("#fileDir")).click(); });
+    $("#btnOpenMenu").addEventListener("click", function (e) { e.stopPropagation(); var m = $("#openMenu"); m.hidden = !m.hidden; $("#btnOpenMenu").setAttribute("aria-expanded", String(!m.hidden)); });
+    $("#menuFiles").addEventListener("click", function () { $("#openMenu").hidden = true; $("#fileFiles").click(); });
+    $("#menuFolder").addEventListener("click", function () { $("#openMenu").hidden = true; $("#fileDir").click(); });
+    document.addEventListener("click", function (e) { if (!e.target.closest("#openMenu")) $("#openMenu").hidden = true; });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { $("#openMenu").hidden = true; $("#expOverlay").hidden = true; $("#saveOverlay").hidden = true; $("#selOverlay").hidden = true; }
+      var tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "textarea") return;
+      if (e.key === "ArrowRight" && cur < images.length - 1) { cur++; afterSelect(); }
+      if (e.key === "ArrowLeft" && cur > 0) { cur--; afterSelect(); }
+    });
+    $("#fileFiles").addEventListener("change", function (e) { addFiles(e.target.files); e.target.value = ""; });
+    $("#fileDir").addEventListener("change", function (e) { addFiles(e.target.files); e.target.value = ""; });
+    /* drag and drop */
+    var dragDepth = 0;
+    window.addEventListener("dragenter", function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], "Files") >= 0) { dragDepth++; $("#dropzone").hidden = false; e.preventDefault(); } });
+    window.addEventListener("dragover", function (e) { e.preventDefault(); });
+    window.addEventListener("dragleave", function () { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("#dropzone").hidden = true; });
+    window.addEventListener("drop", function (e) { e.preventDefault(); dragDepth = 0; $("#dropzone").hidden = true; if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+    /* templates */
+    $("#btnSaveTpl").addEventListener("click", function () { saveTemplate($("#tplName").value); });
+    $("#tplName").addEventListener("keydown", function (e) { if (e.key === "Enter") saveTemplate($("#tplName").value); });
+    $("#btnTplExport").addEventListener("click", function () {
+      if (!templates.length) { toast("No templates to export yet."); return; }
+      saveFile("exifframe-templates.json", new Blob([JSON.stringify({ app: "ExifFrame", version: 1, templates: templates }, null, 2)], { type: "application/json" }));
+    });
+    $("#btnTplImport").addEventListener("click", function () { $("#fileTpl").click(); });
+    $("#fileTpl").addEventListener("change", function (e) {
+      var f = e.target.files[0]; e.target.value = ""; if (!f) return;
+      f.text().then(function (txt) {
+        var data = JSON.parse(txt), list = Array.isArray(data) ? data : data.templates, n = 0;
+        if (!Array.isArray(list)) throw new Error("bad");
+        list.forEach(function (t) {
+          if (!t || !t.name || !t.settings) return;
+          var ex = templates.filter(function (x) { return x.name.toLowerCase() === String(t.name).toLowerCase(); })[0];
+          if (ex) ex.settings = norm(t.settings); else templates.push({ id: Date.now().toString(36) + n, name: String(t.name).slice(0, 40), settings: norm(t.settings) });
+          n++;
+        });
+        store.set("exifframe.templates", templates); renderTemplates(); toast("Imported " + n + " template(s).");
+      }).catch(function () { toast("That file is not a valid ExifFrame templates file."); });
+    });
+  }
+
+  /* ---------- templates ---------- */
+  function saveTemplate(name) {
+    name = (name || "").trim() || "Template " + (templates.length + 1);
+    var ex = templates.filter(function (t) { return t.name.toLowerCase() === name.toLowerCase(); })[0];
+    if (ex) { ex.settings = clone(S); activeTpl = ex.id; toast("Updated “" + ex.name + "”"); }
+    else { var t = { id: Date.now().toString(36), name: name.slice(0, 40), settings: clone(S) }; templates.push(t); activeTpl = t.id; toast("Saved template “" + t.name + "”"); }
+    store.set("exifframe.templates", templates); $("#tplName").value = ""; renderTemplates();
+  }
+  function renderTemplates() {
+    var host = $("#tplList"); host.innerHTML = "";
+    if (!templates.length) { host.innerHTML = '<div class="empty">No templates yet. Set up a frame, give it a name above, and press Save.</div>'; return; }
+    templates.forEach(function (t) {
+      var s = t.settings, st = STYLES.filter(function (x) { return x.id === s.style; })[0];
+      var row = document.createElement("div"); row.className = "tpl"; row.tabIndex = 0; row.setAttribute("role", "button");
+      row.setAttribute("aria-current", String(t.id === activeTpl));
+      row.innerHTML = '<div class="mini" style="background:' + s.frameColor + '"><b></b><i style="background:' + s.textColor + '"></i></div>' +
+        '<div style="min-width:0"><div class="nm"></div><div class="sub"></div></div><button class="del" aria-label="Delete template" title="Delete">×</button>';
+      row.querySelector(".nm").textContent = t.name;
+      row.querySelector(".sub").textContent = (st ? st.label : "") + " · " + (s.aspect === "auto" ? "Auto" : s.aspect === "4300:3618" ? "Default" : s.aspect) + " · " + s.mode;
+      function apply() { S = norm(t.settings); activeTpl = t.id; syncUI(); renderFields(); renderTemplates(); schedule(); }
+      row.addEventListener("click", function (e) {
+        if (e.target.closest(".del")) {
+          templates = templates.filter(function (x) { return x.id !== t.id; });
+          if (activeTpl === t.id) activeTpl = null;
+          store.set("exifframe.templates", templates); renderTemplates(); toast("Deleted “" + t.name + "”"); return;
+        }
+        apply();
+      });
+      row.addEventListener("keydown", function (e) { if (e.key === "Enter" && e.target === row) apply(); });
+      host.appendChild(row);
+    });
+  }
+
+  /* ---------- export ---------- */
+  var CRC = (function () {
+    var t = new Uint32Array(256);
+    for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+    return function (b) { var c = ~0; for (var i = 0; i < b.length; i++) c = t[(c ^ b[i]) & 255] ^ (c >>> 8); return (~c) >>> 0; };
+  })();
+  function makeZip(files) {
+    var enc = new TextEncoder(), chunks = [], central = [], offset = 0;
+    return files.reduce(function (p, f) {
+      return p.then(function () {
+        return f.blob.arrayBuffer().then(function (ab) {
+          var data = new Uint8Array(ab), name = enc.encode(f.name), crc = CRC(data);
+          var lh = new DataView(new ArrayBuffer(30));
+          lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+          lh.setUint16(10, 0, true); lh.setUint16(12, 0x21, true); lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true);
+          lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+          chunks.push(lh.buffer, name, data);
+          var ch = new DataView(new ArrayBuffer(46));
+          ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+          ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0x21, true); ch.setUint32(16, crc, true);
+          ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+          ch.setUint32(42, offset, true);
+          central.push(ch.buffer, name);
+          offset += 30 + name.length + data.length;
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      var csize = 0; central.forEach(function (c) { csize += c.byteLength; });
+      var end = new DataView(new ArrayBuffer(22));
+      end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+      end.setUint32(12, csize, true); end.setUint32(16, offset, true);
+      return new Blob(chunks.concat(central, [end.buffer]), { type: "application/zip" });
+    });
+  }
+  function renderBlob(im) {
+    var c = document.createElement("canvas"), p = plan(im);
+    var sc = 1;
+    if (S.exp.max > 0) sc = Math.min(1, S.exp.max / Math.max(p.W, p.H));
+    var mime = S.exp.fmt === "png" ? "image/png" : "image/jpeg";
+    function attempt(n) {
+      paint(c, im, sc);
+      return new Promise(function (res) { c.toBlob(res, mime, S.exp.q / 100); }).then(function (b) {
+        if (b || n >= 3) return b;
+        sc *= 0.7; return attempt(n + 1);
+      });
+    }
+    return ensureFont().then(function () { return attempt(0); }).then(function (b) {
+      if (!b || !S.exp.keepExif || !im.exifBlock) return b;
+      var blk = patchBlock(im.exifBlock, c.width, c.height);
+      return (S.exp.fmt === "png" ? injectPng : injectJpeg)(b, blk).catch(function () { return b; });
+    });
+  }
+  function outName(im) {
+    var base = im.name.replace(/\.[^.]+$/, "");
+    return base + "_exifframe." + (S.exp.fmt === "png" ? "png" : "jpg");
+  }
+  function inViewer() { return !!(window.claude && window.claude.use); }
+  /* saving: chosen folder first, then the viewer's save prompt, then a plain download */
+  var dirHandle = null, noPicker = typeof window.showDirectoryPicker !== "function";
+  function updateFolderUI() {
+    var row = $("#folderRow"); if (!row) return;
+    row.hidden = noPicker && !dirHandle;
+    $("#folderName").textContent = dirHandle ? dirHandle.name : "Not chosen yet";
+    $("#btnExportAll").textContent = dirHandle ? "Export all" : "Export all (.zip)";
+  }
+  function pickFolder(force) {
+    if (noPicker) return Promise.resolve("none");
+    if (dirHandle && !force) {
+      var q = dirHandle.queryPermission ? dirHandle.queryPermission({ mode: "readwrite" }) : Promise.resolve("granted");
+      return q.then(function (st) {
+        if (st === "granted") return "ok";
+        return dirHandle.requestPermission({ mode: "readwrite" }).then(function (r) {
+          if (r === "granted") return "ok";
+          dirHandle = null; return pickFolder(true);
+        });
+      }).catch(function () { dirHandle = null; return pickFolder(true); });
+    }
+    return window.showDirectoryPicker({ mode: "readwrite", id: "exifframe", startIn: "pictures" }).then(function (h) {
+      dirHandle = h; updateFolderUI(); return "ok";
+    }).catch(function (e) {
+      if (e && e.name === "AbortError") return "cancel";
+      noPicker = true; updateFolderUI(); return "none";
+    });
+  }
+  function writeToFolder(name, blob) {
+    return dirHandle.getFileHandle(name, { create: true }).then(function (fh) { return fh.createWritable(); }).then(function (w) {
+      return w.write(blob).then(function () { return w.close(); });
+    });
+  }
+  function anchorSave(filename, blob) {
+    var url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = filename; a.style.display = "none";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 4000);
+    toast("Saved " + filename + " to your Downloads folder");
+    return Promise.resolve();
+  }
+  function saveFile(filename, blob, quiet) {
+    if (dirHandle) {
+      return writeToFolder(filename, blob).then(function () {
+        if (!quiet) toast("Saved to “" + dirHandle.name + "”: " + filename);
+      }).catch(function () {
+        dirHandle = null; updateFolderUI();
+        toast("Could not write to that folder. Press Export again to choose it.");
+      });
+    }
+    if (!inViewer()) return anchorSave(filename, blob);
+    var fallback = function () {
+      if (/^image\//.test(blob.type)) { $("#saveImg").src = URL.createObjectURL(blob); $("#saveOverlay").hidden = false; }
+      else toast("Saving files is not available in this view.");
+    };
+    return window.claude.use("downloads").then(function (d) {
+      if (!d) { anchorSave(filename, blob); return; }
+      return d.save({ filename: filename, data: blob }).then(function () { toast("Saved " + filename); }).catch(function (err) {
+        if (err && err.code === "declined") return;
+        if (err && err.code === "rate_limited") { toast("Another save prompt is open. Try again in a moment."); return; }
+        if (err && err.code === "too_large") { toast("File too large. Lower the size in Export settings."); return; }
+        fallback();
+      });
+    }).catch(fallback);
+  }
+  function exportCurrent() {
+    var im = images[cur]; if (!im) return;
+    var btn = $("#btnExport"); btn.disabled = true; btn.textContent = "Exporting…";
+    var done = function () { btn.disabled = false; btn.textContent = "Export"; };
+    pickFolder(false).then(function (r) {
+      if (r === "cancel") return;
+      return renderBlob(im).then(function (blob) {
+        if (!blob) { toast("This photo is too large for the browser to export. Pick a smaller size in Export settings."); return; }
+        return saveFile(outName(im), blob);
+      });
+    }).then(done, function () { done(); toast("Export failed."); });
+  }
+  function exportMany(list) {
+    if (!list.length) return;
+    var btn = $("#btnExport"); btn.disabled = true;
+    var files = [], seen = {};
+    var done = function () { btn.disabled = false; btn.textContent = "Export"; };
+    pickFolder(false).then(function (r) {
+      if (r === "cancel") return;
+      return list.reduce(function (p, im, i) {
+        return p.then(function () {
+          btn.textContent = "Exporting " + (i + 1) + "/" + list.length + "…";
+          return renderBlob(im).then(function (b) {
+            if (!b) return;
+            var nm = outName(im); if (seen[nm]) nm = nm.replace(/(\.[^.]+)$/, "_" + (i + 1) + "$1"); seen[nm] = 1;
+            if (dirHandle) return saveFile(nm, b, true).then(function () { files.push(nm); });
+            files.push({ name: nm, blob: b });
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        if (!files.length) { toast("Nothing could be exported."); return; }
+        if (dirHandle) { toast("Saved " + files.length + " file(s) to “" + dirHandle.name + "”"); return; }
+        return makeZip(files).then(function (z) { return saveFile("exifframe-export.zip", z); });
+      });
+    }).then(done, function () { done(); toast("Export failed."); });
+  }
+
+  var picked = {};
+  function openSelect() {
+    picked = {}; images.forEach(function (im) { picked[im.id] = true; });
+    var g = $("#selGrid"); g.innerHTML = "";
+    images.forEach(function (im) {
+      var b = document.createElement("button");
+      b.className = "sel"; b.setAttribute("aria-pressed", "true"); b.title = im.name;
+      b.innerHTML = '<img alt=""><span class="tick"><span>✓</span></span><span class="nm"></span>';
+      b.querySelector("img").src = im.thumb; b.querySelector(".nm").textContent = im.name;
+      b.addEventListener("click", function () { picked[im.id] = !picked[im.id]; b.setAttribute("aria-pressed", String(!!picked[im.id])); syncSelect(); });
+      g.appendChild(b);
+    });
+    syncSelect(); $("#selOverlay").hidden = false;
+  }
+  function syncSelect() {
+    var n = images.filter(function (im) { return picked[im.id]; }).length;
+    $("#selCount").textContent = n + " of " + images.length + " selected";
+    var go = $("#selGo"); go.textContent = n ? "Export " + n + (n === 1 ? " photo" : " photos") : "Export"; go.disabled = !n;
+  }
+  function setAllPicked(v) {
+    images.forEach(function (im) { picked[im.id] = v; });
+    $$("#selGrid .sel").forEach(function (b) { b.setAttribute("aria-pressed", String(v)); });
+    syncSelect();
+  }
+  function startExport() {
+    if (images.length > 1) openSelect(); else exportCurrent();
+  }
+
+  /* ---------- init ---------- */
+  buildStatic();
+  bindControls();
+  syncUI();
+  renderTemplates();
+  addSample();
+  afterSelect();
+  updateFolderUI();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+})();
+</script>
+</body>
+</html>
